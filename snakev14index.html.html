@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Snake Dynamique - Final</title>
+    <style>
+        body { 
+            background: #1a1a1a; 
+            display: flex; 
+            flex-direction: column; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            margin: 0; 
+            color: white; 
+            font-family: sans-serif; 
+        }
+        canvas { 
+            border: 5px solid #5C4033; 
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.7); 
+        }
+        
+        /* --- STYLE SCORE ACTUEL (Amélioré) --- */
+        #scoreBoard {
+            font-size: 32px; 
+            margin-bottom: 15px;
+            padding: 8px 15px;
+            background: #2b2b2b; 
+            border-radius: 8px;
+            border: 2px solid #FFD700; /* Bordure Or */
+            color: #00FF00; /* Vert Néon pour le score */
+            font-family: 'Consolas', monospace; /* Police numérique */
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+        }
+
+        /* --- STYLE CLASSEMENT (Amélioré) --- */
+        #highScoresContainer {
+            margin-top: 20px;
+            width: 450px;
+            text-align: left;
+            padding: 15px;
+            background: #1e1e1e; /* Fond très sombre */
+            border-radius: 5px;
+            border: 2px solid #5C4033; /* Bordure couleur bois */
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.7);
+            display: none; 
+        }
+        #highScoresContainer h3 {
+            font-size: 22px;
+            text-align: center;
+            margin-top: 0;
+            padding-bottom: 5px;
+            border-bottom: 2px solid #FFD700; /* Ligne de séparation dorée */
+            margin-bottom: 10px;
+            color: #FFD700;
+        }
+        #highScoresList {
+            list-style: none;
+            padding: 0;
+        }
+        #highScoresList li {
+            padding: 8px 0;
+            font-size: 18px;
+            border-bottom: 1px dashed #666; 
+            display: flex;
+            justify-content: space-between;
+        }
+        #highScoresList li:last-child {
+            border-bottom: none;
+        }
+        /* Couleurs des médailles */
+        #highScoresList li:first-child { color: #FFD700; } /* OR (1er) */
+        #highScoresList li:nth-child(2) { color: silver; } /* Argent (2e) */
+        #highScoresList li:nth-child(3) { color: #CD7F32; } /* Bronze (3e) */
+
+        .pseudo { 
+            color: #FFFFFF; /* Pseudo en blanc pour la lisibilité */
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body>
+    <div id="scoreBoard">Score : <span id="score">0</span></div>
+    <canvas id="game" width="400" height="400"></canvas>
+    
+    <div id="highScoresContainer">
+        <h3>Meilleurs Scores</h3>
+        <ul id="highScoresList">
+            <li>Chargement du classement...</li>
+        </ul>
+    </div>
+    
+    <script>
+        // --- LOGIQUE DU JEU (Non modifiée depuis V11.0) ---
+        const canvas = document.getElementById("game");
+        const ctx = canvas.getContext("2d");
+        const scoreDisplay = document.getElementById("score");
+        const highScoresList = document.getElementById("highScoresList");
+        document.addEventListener("keydown", keyPush);
+        
+        const GAME_INTERVAL = 125; 
+        setInterval(gameLoop, GAME_INTERVAL); 
+
+        const gridSize = 20;
+        const tileCount = canvas.width / gridSize;
+        const HIGHSCORE_KEY = 'snakeHighScores';
+        
+        let xv = 0, yv = 0;
+        let px = 10, py = 10;
+        let appleX = 15, appleY = 15;
+        let trail = [];
+        let tail = 5;
+        let score = 0;
+        let isGameRunning = false;
+        let playerPseudo = "Invité";
+
+        function getFlowingGradient() {
+            const timeHue = Math.floor(Date.now() / 15) % 360; 
+            const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+            gradient.addColorStop(0, `hsl(${timeHue}, 90%, 60%)`);
+            gradient.addColorStop(1, `hsl(${(timeHue + 60) % 360}, 90%, 60%)`); 
+            return gradient;
+        }
+
+        function loadAndDisplayHighScores() {
+            const scoresJson = localStorage.getItem(HIGHSCORE_KEY);
+            let scores = scoresJson ? JSON.parse(scoresJson) : [];
+            scores.sort((a, b) => b.score - a.score); 
+            scores = scores.slice(0, 5);
+            highScoresList.innerHTML = scores.length === 0 
+                ? '<li>Aucun score enregistré.</li>' 
+                : scores.map((s, index) => 
+                    `<li>${index + 1}. <span class="pseudo">${s.pseudo}</span></li><li>${s.score} pts</li>`
+                ).join('');
+            localStorage.setItem(HIGHSCORE_KEY, JSON.stringify(scores));
+        }
+
+        function saveHighScore(newScore) {
+            const scoresJson = localStorage.getItem(HIGHSCORE_KEY);
+            let scores = scoresJson ? JSON.parse(scoresJson) : [];
+            scores.push({score: newScore, pseudo: playerPseudo});
+            localStorage.setItem(HIGHSCORE_KEY, JSON.stringify(scores));
+            loadAndDisplayHighScores();
+        }
+
+        function drawApple(x, y) {
+            const centerX = x * gridSize + gridSize / 2;
+            const centerY = y * gridSize + gridSize / 2;
+            const radius = gridSize / 2 * 0.8;
+            const gradient = ctx.createRadialGradient(centerX - radius/3, centerY - radius/3, radius/5, centerX, centerY, radius);
+            gradient.addColorStop(0, '#FF4500'); gradient.addColorStop(1, '#B22222'); 
+            ctx.fillStyle = gradient; ctx.beginPath(); ctx.arc(centerX, centerY, radius, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = '#4A3B2F'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(centerX, centerY - radius); ctx.lineTo(centerX, centerY - radius * 1.2); ctx.stroke();
+            ctx.fillStyle = '#38761D'; ctx.beginPath(); ctx.ellipse(centerX + radius * 0.4, centerY - radius * 0.7, radius * 0.3, radius * 0.15, -Math.PI / 4, 0, Math.PI * 2); ctx.fill();
+        }
+
+        function drawSnakeHead(x, y, dx, dy) {
+            const centerX = x * gridSize + gridSize / 2;
+            const centerY = y * gridSize + gridSize / 2;
+            const headRadius = gridSize / 2 * 0.9;
+            const headGradient = ctx.createRadialGradient(centerX - dx * 5, centerY - dy * 5, headRadius / 3, centerX, centerY, headRadius);
+            headGradient.addColorStop(0, '#5DADE2'); headGradient.addColorStop(1, '#2874A6'); 
+            ctx.fillStyle = headGradient; ctx.beginPath(); ctx.arc(centerX, centerY, headRadius, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = 'white'; const eyeOffsetX = dx * 5 + dy * 5; const eyeOffsetY = dy * 5 - dx * 5;
+            ctx.beginPath(); ctx.arc(centerX - eyeOffsetX / 2, centerY - eyeOffsetY / 2, 4, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(centerX + eyeOffsetX / 2, centerY + eyeOffsetY / 2, 4, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = 'black';
+            ctx.beginPath(); ctx.arc(centerX - eyeOffsetX / 2 + dx*2, centerY - eyeOffsetY / 2 + dy*2, 2, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(centerX + eyeOffsetX / 2 + dx*2, centerY + eyeOffsetY / 2 + dy*2, 2, 0, Math.PI * 2); ctx.fill();
+        }
+
+        function drawSmoothBody() {
+            if (trail.length < 2) return;
+            ctx.strokeStyle = getFlowingGradient(); 
+            ctx.lineWidth = gridSize * 0.7 * 2; 
+            ctx.lineCap = 'round'; ctx.lineJoin = 'round'; 
+            ctx.beginPath(); ctx.moveTo(trail[0].x * gridSize + gridSize / 2, trail[0].y * gridSize + gridSize / 2);
+            for (let i = 1; i < trail.length - 1; i++) {
+                ctx.lineTo(trail[i].x * gridSize + gridSize / 2, trail[i].y * gridSize + gridSize / 2);
+            }
+            ctx.lineTo(trail[trail.length - 1].x * gridSize + gridSize / 2, trail[trail.length - 1].y * gridSize + gridSize / 2);
+            ctx.stroke();
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(trail[0].x * gridSize + gridSize / 2, trail[0].y * gridSize + gridSize / 2);
+            for (let i = 1; i < trail.length - 1; i++) {
+                ctx.lineTo(trail[i].x * gridSize + gridSize / 2, trail[i].y * gridSize + gridSize / 2);
+            }
+            ctx.lineTo(trail[trail.length - 1].x * gridSize + gridSize / 2, trail[trail.length - 1].y * gridSize + gridSize / 2); ctx.stroke();
+        }
+        
+        function gameLoop() {
+            if (isGameRunning) {
+                px += xv; py += yv;
+                if (px < 0 || px > tileCount - 1 || py < 0 || py > tileCount - 1) { gameOver(); return; }
+                for (let i = 0; i < trail.length; i++) {
+                    if (trail[i].x === px && trail[i].y === py) { gameOver(); return; }
+                }
+            }
+            
+            trail.push({x: px, y: py});
+            while (trail.length > tail) { trail.shift(); }
+
+            if (appleX === px && appleY === py) {
+                tail++; score += 10; scoreDisplay.innerText = score;
+                appleX = Math.floor(Math.random() * tileCount); appleY = Math.floor(Math.random() * tileCount);
+            }
+            drawGame();
+        }
+
+        function drawGame() {
+            const lightJungle = '#5D7C2C'; const darkJungle = '#385F28'; 
+            for (let y = 0; y < tileCount; y++) {
+                for (let x = 0; x < tileCount; x++) {
+                    ctx.fillStyle = (x + y) % 2 === 0 ? lightJungle : darkJungle;
+                    ctx.fillRect(x * gridSize, y * gridSize, gridSize, gridSize);
+                }
+            }
+            drawApple(appleX, appleY); drawSmoothBody(); 
+            if (isGameRunning) {
+                drawSnakeHead(trail[trail.length - 1].x, trail[trail.length - 1].y, xv, yv);
+            }
+        }
+
+        function gameOver() {
+            alert(`Partie terminée ! Score final : ${score}`);
+            
+            if (score > 0) { saveHighScore(score); }
+            
+            document.getElementById('highScoresContainer').style.display = 'block';
+
+            tail = 5; score = 0; scoreDisplay.innerText = score;
+            px = 10; py = 10; xv = 0; yv = 0; trail = []; isGameRunning = false;
+        }
+
+        function keyPush(evt) {
+            if (!isGameRunning && (evt.keyCode >= 37 && evt.keyCode <= 40)) {
+                isGameRunning = true;
+                const overlay = document.getElementById('startOverlay');
+                if (overlay) overlay.style.display = 'none';
+                document.getElementById('highScoresContainer').style.display = 'none'; 
+            }
+
+            switch(evt.keyCode) {
+                case 37: if(xv !== 1) { xv = -1; yv = 0; } break; 
+                case 38: if(yv !== 1) { xv = 0; yv = -1; } break; 
+                case 39: if(xv !== -1) { xv = 1; yv = 0; } break; 
+                case 40: if(yv !== -1) { xv = 0; yv = 1; } break; 
+            }
+        }
+        
+        // --- INITIALISATION ---
+        
+        let tempPseudo = prompt("Veuillez entrer votre Pseudo pour le classement :", "Joueur");
+        if (tempPseudo && tempPseudo.trim() !== "") {
+            playerPseudo = tempPseudo.trim().substring(0, 15);
+        }
+
+        loadAndDisplayHighScores();
+        drawGame(); 
+        
+        document.body.insertAdjacentHTML('beforeend', 
+            `<div id="startOverlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); z-index: 100;">
+                <p style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 24px; text-align: center;">Appuyez sur une flèche pour commencer, ${playerPseudo} !</p>
+            </div>`
+        );
+    </script>
+</body>
+</html>
